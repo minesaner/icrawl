@@ -25,7 +25,7 @@ function Crawl({
 }) {
   this.pageExt = new Set([...PAGE_EXT, ...pageExt])
   this.totalCount = routes.length // 需要爬取的页面总数
-  this.routes = routes.map(r => new PageRoute(host + r))
+  this.routes = routes.map(r => new PageRoute(path.join(host, r)))
   this.runningURL = new Set()
   this.completeURL = new Set()
   this.viewport = viewport
@@ -69,13 +69,6 @@ Crawl.prototype._newPage = function(pageCount) {
   const {browser, routes} = this
   for (let i = 0; i < pageCount; i++) {
     browser.newPage().then(page => {
-      // todo
-      page.on('request', request => {
-        if (request.url().endsWith('nodejs/node')) {
-          console.log(request.url())
-          console.log('resource type: ' + request.resourceType())
-        }
-      })
       this._crawl(page, routes.shift())
     })
   }
@@ -187,10 +180,7 @@ Crawl.prototype._saveHTML = function(page, pageRoute) {
 }
 
 Crawl.prototype._writeErrorFile = function() {
-  // todo
-  // const logname = `${new Date().toISOString().replace(/:|\./g, '-')}_icrawl-err.log`
-  // console.log(this.errors[0])
-  const logname = 'icrawl-err.log'
+  const logname = `${new Date().toISOString().replace(/:|\./g, '-')}_icrawl-err.log`
   const logpath = path.resolve(process.cwd(), logname)
   const errors = this.errors.map(e => `url: ${e.pageRoute.url}\n` +
     `referer: ${e.pageRoute.referer || '<null>'}\n` +
@@ -226,9 +216,9 @@ Crawl.prototype._finishCallback = function(page, pageRoute) {
     this.errors.length && this._writeErrorFile()
     browser.close()
     // todo
-    const writeStream = fs.createWriteStream('urls.txt')
-    writeStream.write(Array.from(this.completeURL).join('\n'), 'utf8')
-    writeStream.end()
+    // const writeStream = fs.createWriteStream('urls.txt')
+    // writeStream.write(Array.from(this.completeURL).join('\n'), 'utf8')
+    // writeStream.end()
   } else {
     const nextRoute = routes.shift()
     if (nextRoute) {
