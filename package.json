@@ -1,0 +1,32 @@
+{
+  "name": "icrawl",
+  "version": "0.0.5",
+  "description": "Crawl pages and generate `html`s corresponding to the path.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "crawl",
+    "icrawl",
+    "ssr",
+    "seo",
+    "spa seo",
+    "prerender",
+    "page snapshot"
+  ],
+  "author": "minesaner",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/minesaner/create-react-app.git"
+  },
+  "homepage": "https://github.com/minesaner/create-react-app/tree/mpa/packages/react-scripts",
+  "license": "MIT",
+  "engines": {
+    "node": ">=8"
+  },
+  "dependencies": {
+    "ora": "^3.0.0",
+    "puppeteer": "^1.10.0"
+  }
+}
