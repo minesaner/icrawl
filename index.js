@@ -69,7 +69,10 @@ Crawl.prototype._newPage = function(pageCount) {
   const {browser, routes} = this
   for (let i = 0; i < pageCount; i++) {
     browser.newPage().then(page => {
-      this._crawl(page, routes.shift())
+      const route = routes.shift()
+      if (route) {
+        this._crawl(page, route)
+      }
     })
   }
 }
@@ -87,7 +90,7 @@ Crawl.prototype._deepLink = function(page, root, current) {
     return Promise.resolve([])
   }
   
-  if (current.depth >= depth) {
+  if (current.depth() >= depth) {
     return Promise.resolve([])
   }
 
