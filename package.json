@@ -18,9 +18,9 @@
   "author": "minesaner",
   "repository": {
     "type": "git",
-    "url": "https://github.com/minesaner/create-react-app.git"
+    "url": "git@github.com:minesaner/icrawl.git"
   },
-  "homepage": "https://github.com/minesaner/create-react-app/tree/mpa/packages/react-scripts",
+  "homepage": "https://github.com/minesaner/icrawl",
   "license": "MIT",
   "engines": {
     "node": ">=8"
