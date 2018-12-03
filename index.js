@@ -25,7 +25,12 @@ function Crawl({
 }) {
   this.pageExt = new Set([...PAGE_EXT, ...pageExt])
   this.totalCount = routes.length // 需要爬取的页面总数
-  this.routes = routes.map(r => new PageRoute(path.join(host, r)))
+  this.routes = routes.map(r => {
+    if (/^(http:\/\/|https:\/\/)/.test(r)) {
+      return new PageRoute(r)
+    }
+    return new PageRoute(host + r)
+  })
   this.runningURL = new Set()
   this.completeURL = new Set()
   this.viewport = viewport
@@ -79,7 +84,7 @@ Crawl.prototype._newPage = function(pageCount) {
 
 Crawl.prototype._progressText = function() {
   const {completeCount, totalCount} = this
-  this.progress.setPercent(completeCount / totalCount)
+  this.progress.setPercent(Math.min(completeCount / totalCount, 1))
   this.spinner.text = `${this.progress.progressBar} ${this.completeCount}/${totalCount}`
 }
 
@@ -140,7 +145,9 @@ Crawl.prototype._deepLink = function(page, root, current) {
       this.totalCount += linkCount
 
       if (runningPageCount < maxPageCount) {
-        this._newPage(Math.min(maxPageCount - runningPageCount, this.totalCount - runningPageCount))
+        const newPageCount = Math.min(maxPageCount - runningPageCount, this.routes.length)
+        this._newPage(newPageCount)
+        this.runningPageCount += newPageCount
       }
 
       this.afterDeep && this.afterDeep(deepRoutes)
@@ -172,7 +179,7 @@ Crawl.prototype._saveHTML = function(page, pageRoute) {
     search = searchMd5.digest('hex')
   }
   
-  const filename = path.resolve(outputPath, `./${pageURL.pathname}${search}.html}`)
+  const filename = path.resolve(outputPath, `./${pageURL.pathname}_${search}.html`)
 
   return page.content().then(html => {
     mkdirsSync(path.dirname(filename))
