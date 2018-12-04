@@ -281,7 +281,7 @@ Crawl.prototype._crawl = function(page, pageRoute) {
   page.goto(
     pageRoute.url,
     {
-      waitUntil: 'networkidle2',
+      waitUntil: 'networkidle0',
       timeout: this.requestTimeout
     }
   ).then(() => {
