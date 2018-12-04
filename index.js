@@ -22,6 +22,7 @@ function Crawl({
   host = '',
   saveHTML = true,
   outputPath = process.cwd() + '/static',
+  isNormalizeSourceURL = false,
 }) {
   this.pageExt = new Set([...PAGE_EXT, ...pageExt])
   this.totalCount = routes.length // 需要爬取的页面总数
@@ -38,6 +39,7 @@ function Crawl({
   this.maxPageCount = maxPageCount
   this.runningPageCount = Math.min(routes.length, maxPageCount)
   this.errors = []
+  this.pageTrash = []
   this.progress = new Progress()
   this.spinner = ora()
   this.completeCount = 0
@@ -56,6 +58,7 @@ function Crawl({
   }
   this.saveHTML = saveHTML
   this.outputPath = outputPath
+  this.isNormalizeSourceURL = isNormalizeSourceURL
 }
 
 Crawl.prototype.start = function() {
@@ -163,29 +166,57 @@ Crawl.prototype._saveHTML = function(page, pageRoute) {
     return Promise.resolve()
   }
 
-  const {outputPath} = this
-  const pageURL = url.parse(pageRoute.url)
-  let search = ''
+  let eva = Promise.resolve()
 
-  if (pageURL.search) {
-    search = pageURL.search.slice(1)
+  if (this.isNormalizeSourceURL) {
+    eva = page.evaluate(base => {
+      const css = Array.from(document.querySelectorAll('link[rel=stylesheet]'))
+      css.forEach(c => {
+        c.href = (new URL(c.href, base)).href
+      })
+
+      const links = Array.from(document.querySelectorAll('a[href]'))
+      links.forEach(l => {
+        l.href = (new URL(l.href, base)).href
+      })
+
+      const scripts = Array.from(document.querySelectorAll('script[src]'))
+      scripts.forEach(s => {
+        s.src = (new URL(s.src, base)).href
+      })
+
+      const imgs = Array.from(document.querySelectorAll('img'))
+      imgs.forEach(i => {
+        i.src = (new URL(i.src, base)).href
+      })
+    }, pageRoute.url)
   }
 
-  // 对查询参数进行 md5 处理
-  // 保证写入的文件名称依据查询参数唯一
-  if (search) {
-    const searchMd5 = crypto.createHash('md5')
-    searchMd5.update(search)
-    search = searchMd5.digest('hex')
-  }
+  return eva.then(() => {
+    const {outputPath} = this
+    const pageURL = url.parse(pageRoute.url)
+    let search = ''
   
-  const filename = path.resolve(outputPath, `./${pageURL.pathname}_${search}.html`)
-
-  return page.content().then(html => {
-    mkdirsSync(path.dirname(filename))
-    const writeStream = fs.createWriteStream(filename)
-    writeStream.write(html, 'utf8')
-    writeStream.end()
+    if (pageURL.search) {
+      search = pageURL.search.slice(1)
+    }
+  
+    // 对查询参数进行 md5 处理
+    // 保证写入的文件名称依据查询参数唯一
+    if (search) {
+      const searchMd5 = crypto.createHash('md5')
+      searchMd5.update(search)
+      search = searchMd5.digest('hex')
+    }
+    
+    const filename = path.resolve(outputPath, `./${pageURL.pathname}_${search}.html`)
+  
+    return page.content().then(html => {
+      mkdirsSync(path.dirname(filename))
+      const writeStream = fs.createWriteStream(filename)
+      writeStream.write(html, 'utf8')
+      writeStream.end()
+    })
   })
 }
 
@@ -224,7 +255,9 @@ Crawl.prototype._finishCallback = function(page, pageRoute) {
     })
 
     this.errors.length && this._writeErrorFile()
-    browser.close()
+    Promise.all(this.pageTrash.map(page => page.close())).finally(() => {
+      browser.close()
+    })
     // todo
     // const writeStream = fs.createWriteStream('urls.txt')
     // writeStream.write(Array.from(this.completeURL).join('\n'), 'utf8')
@@ -234,7 +267,7 @@ Crawl.prototype._finishCallback = function(page, pageRoute) {
     if (nextRoute) {
       this._crawl(page, nextRoute)
     } else {
-      page.close()
+      this.pageTrash.push(page)
     }
   }
 }
