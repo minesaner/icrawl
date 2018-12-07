@@ -29,7 +29,8 @@
     "node": ">=8"
   },
   "dependencies": {
-    "ora": "^3.0.0",
-    "puppeteer": "^1.10.0"
+    "ora": "3.0.0",
+    "puppeteer": "1.10.0",
+    "serve-handler": "5.0.7"
   }
 }

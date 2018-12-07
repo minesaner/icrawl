@@ -4,6 +4,9 @@ const logSymbols = require('log-symbols')
 const chalk = require('chalk')
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
+const http = require('http')
+const handler = require('serve-handler')
 const url = require('url')
 const crypto = require('crypto')
 const mkdirsSync = require('./lib/mkdirsSync')
@@ -23,9 +26,31 @@ function Crawl({
   saveHTML = true,
   outputPath = process.cwd() + '/static',
   isNormalizeSourceURL = false,
+  serverConfig = null,
+  requestInterception = null,
+  progressBarStyle = {
+    prefix: '',
+    suffix: '',
+    remaining: '░',
+    completed: '█',
+  },
 }) {
   this.pageExt = new Set([...PAGE_EXT, ...pageExt])
   this.totalCount = routes.length // 需要爬取的页面总数
+
+  if (serverConfig) {
+    if (typeof serverConfig === 'string') {
+      serverConfig = {
+        path: serverConfig,
+      }
+    }
+
+    serverConfig.port = serverConfig.port || 3333
+    host = `http://127.0.0.1:${serverConfig.port}`
+  }
+
+  this.serverConfig = serverConfig
+  this.server = null
   this.routes = routes.map(r => {
     if (/^(http:\/\/|https:\/\/)/.test(r)) {
       return new PageRoute(r)
@@ -40,7 +65,7 @@ function Crawl({
   this.runningPageCount = Math.min(routes.length, maxPageCount)
   this.errors = []
   this.pageTrash = []
-  this.progress = new Progress()
+  this.progress = new Progress(progressBarStyle)
   this.spinner = ora()
   this.completeCount = 0
   this.startTime = null
@@ -58,18 +83,34 @@ function Crawl({
   }
   this.saveHTML = saveHTML
   this.outputPath = outputPath
-  this.isNormalizeSourceURL = isNormalizeSourceURL
+
+  if (isNormalizeSourceURL === true) {
+    this.isNormalizeSourceURL = {
+      links: isNormalizeSourceURL,
+      images: isNormalizeSourceURL,
+      scripts: isNormalizeSourceURL,
+      anchors: isNormalizeSourceURL,
+    }
+  } else {
+    this.isNormalizeSourceURL = isNormalizeSourceURL
+  }
+
+  this.requestInterception = requestInterception
 }
 
 Crawl.prototype.start = function() {
-  this.startTime = Date.now()
-  this.spinner.start()
-  this._progressText()
-  puppeteer.launch({
-    defaultViewport: this.viewport
-  }).then(browser => {
-    this.browser = browser
-    this._newPage(this.runningPageCount)
+  this._createServer().then(() => {
+    this.startTime = Date.now()
+    this.spinner.start()
+    this._progressText()
+    puppeteer.launch({
+      defaultViewport: this.viewport
+    }).then(browser => {
+      this.browser = browser
+      this._newPage(this.runningPageCount)
+    })
+  }).catch(err => {
+    throw err
   })
 }
 
@@ -79,10 +120,73 @@ Crawl.prototype._newPage = function(pageCount) {
     browser.newPage().then(page => {
       const route = routes.shift()
       if (route) {
-        this._crawl(page, route)
+        this._setInterception(page).then(() => {
+          this._crawl(page, route)
+        }).catch(err => {
+          throw err
+        })
       }
     })
   }
+}
+
+Crawl.prototype._createServer = function() {
+  if (this.serverConfig) {
+    const serverConfig = {
+      public: this.serverConfig.path,
+    }
+
+    if (this.serverConfig.isFallback) {
+      serverConfig.rewrites = [
+        {source: '*', destination: '/index.html'}
+      ]
+    }
+    
+    return new Promise(resolve => {
+      const server = http.createServer((req, res) => {
+        return handler(req, res, serverConfig)
+      })
+
+      server.listen(this.serverConfig.port, err => {
+        if (err) throw err
+        this.server = server
+        resolve()
+      })
+    })
+  }
+
+  return Promise.resolve()
+}
+
+Crawl.prototype._setInterception = function(page) {
+  const {requestInterception} = this
+  if (requestInterception) {
+    page.on('request', request => {
+      const url = request.url()
+      let ifContinue = true
+      
+      if (requestInterception.include) {
+        if (requestInterception.include.test(url)) {
+          ifContinue = true
+        } else {
+          ifContinue = false
+        }
+      }
+
+      if (requestInterception.exclude && requestInterception.exclude.test(url)) {
+        ifContinue = false
+      }
+
+      if (ifContinue) {
+        request.continue()
+      } else {
+        request.abort()
+      }
+    })
+    return page.setRequestInterception(true)
+  }
+
+  return Promise.resolve()
 }
 
 Crawl.prototype._progressText = function() {
@@ -123,21 +227,6 @@ Crawl.prototype._deepLink = function(page, root, current) {
       links = links.filter(l => !exclude.test(l))
     }
 
-    const refererURL = url.parse(current.url)
-    links = links.map(l => {
-      if (l.startsWith('//')) {
-        return `${refererURL.protocol}${l}`
-      }
-      if (l.startsWith('/')) {
-        return `${refererURL.protocol}//${refererURL.host}${l}`
-      }
-      if (/^(?:http:|https:)/.test(l)) {
-        return l
-      }
-
-      return `${path.dirname(referer.url)}/${l}`
-    })
-
     return links
   }).then(links => {
     const {routes, runningPageCount, maxPageCount} = this
@@ -168,28 +257,43 @@ Crawl.prototype._saveHTML = function(page, pageRoute) {
 
   let eva = Promise.resolve()
 
-  if (this.isNormalizeSourceURL) {
-    eva = page.evaluate(base => {
-      const css = Array.from(document.querySelectorAll('link[rel=stylesheet]'))
-      css.forEach(c => {
-        c.href = (new URL(c.href, base)).href
-      })
+  if (this.serverConfig && !this.serverConfig.public) {
+  } else if (this.isNormalizeSourceURL) {
+    let baseURL = pageRoute.url
 
-      const links = Array.from(document.querySelectorAll('a[href]'))
-      links.forEach(l => {
-        l.href = (new URL(l.href, base)).href
-      })
+    if (this.serverConfig) {
+      baseURL = this.serverConfig.public
+    }
+    
+    eva = page.evaluate((base, isNormalizeSourceURL) => {
+      if (isNormalizeSourceURL.links) {
+        const links = Array.from(document.querySelectorAll('link[href]'))
+        links.forEach(l => {
+          l.href = new URL(l.getAttribute('href'), base).href
+        })
+      }
 
-      const scripts = Array.from(document.querySelectorAll('script[src]'))
-      scripts.forEach(s => {
-        s.src = (new URL(s.src, base)).href
-      })
+      if (isNormalizeSourceURL.anchors) {
+        const anchors = Array.from(document.querySelectorAll('a[href]'))
+        anchors.forEach(a => {
+          a.href = new URL(a.getAttribute('href'), base).href
+        })
+      }
 
-      const imgs = Array.from(document.querySelectorAll('img'))
-      imgs.forEach(i => {
-        i.src = (new URL(i.src, base)).href
-      })
-    }, pageRoute.url)
+      if (isNormalizeSourceURL.scripts) {
+        const scripts = Array.from(document.querySelectorAll('script[src]'))
+        scripts.forEach(s => {
+          s.src = new URL(s.getAttribute('src'), base).href
+        })
+      }
+
+      if (isNormalizeSourceURL.images) {
+        const imgs = Array.from(document.querySelectorAll('img'))
+        imgs.forEach(i => {
+          i.src = new URL(i.getAttribute('src'), base).href
+        })
+      }
+    }, baseURL, this.isNormalizeSourceURL)
   }
 
   return eva.then(() => {
@@ -222,7 +326,9 @@ Crawl.prototype._saveHTML = function(page, pageRoute) {
 
 Crawl.prototype._writeErrorFile = function() {
   const logname = `${new Date().toISOString().replace(/:|\./g, '-')}_icrawl-err.log`
-  const logpath = path.resolve(process.cwd(), logname)
+  const dir = path.resolve(os.homedir(), '.icrawl', '_logs')
+  mkdirsSync(dir)
+  const logpath = path.resolve(dir, logname)
   const errors = this.errors.map(e => `url: ${e.pageRoute.url}\n` +
     `referer: ${e.pageRoute.referer || '<null>'}\n` +
     `root: ${e.pageRoute.root || '<null>'}\n` +
@@ -255,13 +361,10 @@ Crawl.prototype._finishCallback = function(page, pageRoute) {
     })
 
     this.errors.length && this._writeErrorFile()
+    this.server && this.server.close()
     Promise.all(this.pageTrash.map(page => page.close())).finally(() => {
       browser.close()
     })
-    // todo
-    // const writeStream = fs.createWriteStream('urls.txt')
-    // writeStream.write(Array.from(this.completeURL).join('\n'), 'utf8')
-    // writeStream.end()
   } else {
     const nextRoute = routes.shift()
     if (nextRoute) {
