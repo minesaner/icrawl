@@ -1,6 +1,6 @@
 {
   "name": "icrawl",
-  "version": "0.0.13",
+  "version": "0.1.0",
   "description": "Crawl pages and generate `html`s corresponding to the path.",
   "main": "index.js",
   "scripts": {
