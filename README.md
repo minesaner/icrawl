@@ -1,6 +1,13 @@
 # icrawl
 Crawl pages and generate `html`s corresponding to the path.  
 
+## Features
+- With nginx, you can do **SEO** on the front-end rendered page.
+- Built-in server, you can directly crawl the page based on the built folder
+- The html save path corresponds to the url path
+- Does not depend on any front-end framework
+- Provide API calls and command line calls
+
 ## Examples
 ### Node API
 ```javascript
@@ -74,6 +81,7 @@ module.exports = {
     * `completed` &lt;String&gt; default: `'█'`
 
 ## crawl.start()
+`return`: Promise
 
 ## PageRoute
 * `url` &lt;String&gt; The page url to crawl  
@@ -84,3 +92,5 @@ module.exports = {
 * By configuring [nginx](./nginx.conf), you can enable **SEO** for front-end rendering pages.  
 * If you use nginx you will need to install the [set-misc-nginx-module](https://github.com/openresty/set-misc-nginx-module) module, or install the [OpenResty](http://openresty.org/cn/installation.html) directly.  
 
+## License
+[MIT licensed](./LICENSE).

@@ -34,6 +34,7 @@ function Crawl({
     remaining: '░',
     completed: '█',
   },
+  showProcess = true,
 }) {
   this.pageExt = new Set([...PAGE_EXT, ...pageExt])
   this.totalCount = routes.length // 需要爬取的页面总数
@@ -96,21 +97,31 @@ function Crawl({
   }
 
   this.requestInterception = requestInterception
+  this.resolve = null
+  this.reject = null
+  this.showProcess = showProcess
 }
 
 Crawl.prototype.start = function() {
-  this._createServer().then(() => {
-    this.startTime = Date.now()
-    this.spinner.start()
-    this._progressText()
-    puppeteer.launch({
-      defaultViewport: this.viewport
-    }).then(browser => {
-      this.browser = browser
-      this._newPage(this.runningPageCount)
+  return new Promise((resolve, reject) => {
+    this.resolve = resolve
+    this.reject = reject
+
+    this._createServer().then(() => {
+      this.startTime = Date.now()
+      if (this.showProcess) {
+        this.spinner.start()
+      }
+      this._progressText()
+      puppeteer.launch({
+        defaultViewport: this.viewport
+      }).then(browser => {
+        this.browser = browser
+        this._newPage(this.runningPageCount)
+      })
+    }).catch(err => {
+      throw err
     })
-  }).catch(err => {
-    throw err
   })
 }
 
@@ -190,9 +201,11 @@ Crawl.prototype._setInterception = function(page) {
 }
 
 Crawl.prototype._progressText = function() {
-  const {completeCount, totalCount} = this
-  this.progress.setPercent(Math.min(completeCount / totalCount, 1))
-  this.spinner.text = `${this.progress.progressBar} ${this.completeCount}/${totalCount}`
+  if (this.showProcess) {
+    const {completeCount, totalCount} = this
+    const percent = completeCount / totalCount
+    this.spinner.text = `${this.progress.getProgressBar(percent)} ${this.completeCount}/${totalCount}`
+  }
 }
 
 Crawl.prototype._deepLink = function(page, root, current) {
@@ -349,20 +362,23 @@ Crawl.prototype._finishCallback = function(page, pageRoute) {
   this._progressText()
 
   if (this.completeCount === this.totalCount) {
-    this.spinner.stopAndPersist({
-      symbol: logSymbols.success
-    })
-    
-    this.spinner.stopAndPersist({
-      symbol: this.errors.length > 0 ? logSymbols.info : logSymbols.success,
-      text: `${chalk.green(this.completeCount - this.errors.length)} successed, ` +
-        `${chalk.red(this.errors.length)} failed, ` +
-        `${chalk.yellow(Date.now() - startTime)} ms`
-    })
+    if (this.showProcess) {
+      this.spinner.stopAndPersist({
+        symbol: logSymbols.success
+      })
+      
+      this.spinner.stopAndPersist({
+        symbol: this.errors.length > 0 ? logSymbols.info : logSymbols.success,
+        text: `${chalk.green(this.completeCount - this.errors.length)} successed, ` +
+          `${chalk.red(this.errors.length)} failed, ` +
+          `${chalk.yellow(Date.now() - startTime)} ms`
+      })
+    }
 
     this.errors.length && this._writeErrorFile()
     this.server && this.server.close()
     Promise.all(this.pageTrash.map(page => page.close())).finally(() => {
+      this.resolve()
       browser.close()
     })
   } else {
